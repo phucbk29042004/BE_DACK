@@ -1,0 +1,6 @@
+@BE_DACK_HostAddress = http://localhost:5155
+
+GET {{BE_DACK_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,1 @@
+Scaffold-DbContext "Name=ConnectionStrings:Connection" Npgsql.EntityFrameworkCore.PostgreSQL -OutputDir Models\Entities -Context AppDbContext -Force
