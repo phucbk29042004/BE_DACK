@@ -189,20 +189,26 @@ namespace BE_DACK.Controllers
                 {
                     try
                     {
-                        var returnUrl = _configuration["PayOS:ReturnUrl"] ?? GetFrontendUrl("/api/Payment/ReturnPayOS");
-                        var cancelUrl = _configuration["PayOS:CancelUrl"] ?? GetFrontendUrl("/src/payment.html?orderId=" + dto.OrderId);
+                        var returnUrl = _configuration["PayOS:ReturnUrl"] ?? (GetFrontendUrl().TrimEnd('/') + "/api/Payment/ReturnPayOS");
+                        var cancelUrl = _configuration["PayOS:CancelUrl"] ?? (GetFrontendUrl().TrimEnd('/') + "/src/index.html");
 
-                        // Lấy thông tin đơn hàng để đưa vào PayOS
-                        var items = donHang.OrderDetails.Select(d => new PaymentLinkItem {
-                            Name = d.Product?.TenSp ?? "Sản phẩm",
-                            Quantity = 1,
-                            Price = (long)d.Gia
-                        }).ToList();
+                        // Chỉ hiện thông tin chung, không hiện chi tiết từng sản phẩm theo yêu cầu
+                        var items = new List<PaymentLinkItem>
+                        {
+                            new PaymentLinkItem {
+                                Name = $"Thanh toan don hang #{donHang.Id}",
+                                Quantity = 1,
+                                Price = (long)dto.SoTien
+                            }
+                        };
                         
                         // PayOS yêu cầu orderCode là số long và duy nhất
                         string timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
                         long orderCode = long.Parse(timestamp.Substring(timestamp.Length - 10) + thanhToan.Id.ToString().PadLeft(3, '0'));
                         
+                        // Set thời gian hết hạn là 10 phút (600 giây)
+                        int expiredAt = (int)DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds();
+
                         var paymentRequest = new CreatePaymentLinkRequest 
                         {
                             OrderCode = orderCode,
@@ -210,7 +216,8 @@ namespace BE_DACK.Controllers
                             Description = $"Thanh toan don hang {donHang.Id}",
                             Items = items,
                             ReturnUrl = returnUrl,
-                            CancelUrl = cancelUrl
+                            CancelUrl = cancelUrl,
+                            ExpiredAt = expiredAt
                         };
 
                         var createPaymentResult = await _payOS.PaymentRequests.CreateAsync(paymentRequest);
@@ -986,8 +993,8 @@ namespace BE_DACK.Controllers
     <div class='result-container'>
         <div class='icon'>!</div>
         <h1>Thanh toán không thành công</h1>
-        <p>Giao dịch của bạn đã bị hủy hoặc gặp lỗi. Vui lòng thử lại.</p>
-        <a href='{paymentPageUrl}' class='btn btn-primary'>Thử lại</a>
+        <p>Giao dịch của bạn đã bị hủy hoặc hết thời gian 10 phút. Đơn hàng đã được lưu lại trong lịch sử để bạn có thể thanh toán sau.</p>
+        <a href='{homePageUrl}' class='btn btn-primary'>Về trang chủ</a>
     </div>
 </body>
 </html>";
