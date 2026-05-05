@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 
@@ -101,14 +101,14 @@ public partial class DACKContext : DbContext
             entity.Property(e => e.FullName).HasMaxLength(100);
             entity.Property(e => e.NgayGui)
                 .HasDefaultValueSql("(getdate())")
-                .HasColumnType("datetime");
+                ;
         });
 
         modelBuilder.Entity<Order>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PK__Orders__3214EC07F66B8408");
 
-            entity.Property(e => e.NgayTaoDonHang).HasColumnType("datetime");
+            entity.Property(e => e.NgayTaoDonHang);
             entity.Property(e => e.TongGiaTriDonHang).HasColumnType("decimal(10, 2)");
             entity.Property(e => e.TrangThai).HasMaxLength(50);
 
@@ -142,7 +142,7 @@ public partial class DACKContext : DbContext
         {
             entity.HasKey(e => e.Id).HasName("PK__Payments__3214EC07409022FE");
 
-            entity.Property(e => e.NgayThanhToan).HasColumnType("datetime");
+            entity.Property(e => e.NgayThanhToan);
             entity.Property(e => e.PhuongThucThanhToan).HasMaxLength(50);
             entity.Property(e => e.SoTienThanhToan).HasColumnType("decimal(10, 2)");
             entity.Property(e => e.TrangThai)
@@ -197,7 +197,7 @@ public partial class DACKContext : DbContext
 
             entity.Property(e => e.DiemDg).HasColumnName("DiemDG");
             entity.Property(e => e.NgayDg)
-                .HasColumnType("datetime")
+                
                 .HasColumnName("NgayDG");
             entity.Property(e => e.NoiDungDg)
                 .HasMaxLength(255)
@@ -314,7 +314,7 @@ public partial class DACKContext : DbContext
 
             entity.Property(e => e.NgayTao)
                 .HasDefaultValueSql("GETDATE()")
-                .HasColumnType("datetime");
+                ;
 
             entity.HasOne(d => d.Customer)
                 .WithMany(p => p.ForumPosts)
@@ -335,7 +335,7 @@ public partial class DACKContext : DbContext
 
             entity.Property(e => e.NgayTao)
                 .HasDefaultValueSql("GETDATE()")
-                .HasColumnType("datetime");
+                ;
 
             entity.HasOne(d => d.Post)
                 .WithMany(p => p.ForumComments)
