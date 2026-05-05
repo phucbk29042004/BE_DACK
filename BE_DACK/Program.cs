@@ -11,16 +11,16 @@ using WebAppDoCongNghe.Service;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// === 1. CẤU HÌNH PORT ĐỂ RENDER NHẬN DIỆN ĐƯỢC API ===
+
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.UseUrls($"http://*:{port}");
 
-// === 2. KẾT NỐI DATABASE (ƯU TIÊN BIẾN MÔI TRƯỜNG TRÊN RENDER) ===
+
 var connectionString = builder.Configuration.GetConnectionString("Connection");
 builder.Services.AddDbContext<DACKContext>(options =>
     options.UseNpgsql(connectionString));
 
-// === 3. CẤU HÌNH JWT AUTHENTICATION ===
+
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 var jwtKey = jwtSettings["Key"] ?? "default_secret_key_at_least_32_chars_long";
 var key = Encoding.UTF8.GetBytes(jwtKey);
