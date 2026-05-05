@@ -8,6 +8,7 @@ using Microsoft.OpenApi.Models;
 using QuanLyDatVeMayBay.Services.VnpayServices;
 using System.Text;
 using WebAppDoCongNghe.Service;
+using PayOS;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -59,6 +60,17 @@ builder.Services.AddScoped<ICloudinaryService, Cloud>();
 // === 5. CẤU HÌNH VNPAY ===
 builder.Services.Configure<VNPaySettings>(builder.Configuration.GetSection("VNPay"));
 builder.Services.AddSingleton<IVnpay, Vnpay>();
+
+// === 5.1 CẤU HÌNH PAYOS ===
+builder.Services.AddSingleton(provider =>
+{
+    var config = builder.Configuration.GetSection("PayOS");
+    return new PayOSClient(
+        config["ClientId"] ?? "",
+        config["ApiKey"] ?? "",
+        config["ChecksumKey"] ?? ""
+    );
+});
 
 // === 6. CẤU HÌNH CORS (CHO PHÉP FRONTEND GỌI API) ===
 builder.Services.AddCors(options =>

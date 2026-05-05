@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using BE_DACK.Models.Entities;
 using BE_DACK.Models.Model;
@@ -10,6 +10,9 @@ using QuanLyDatVeMayBay.Services.VnpayServices;
 using QuanLyDatVeMayBay.Services.VnpayServices.Enums;
 using VNPAY.NET.Models;
 using VNPAY.NET.Utilities;
+using PayOS;
+using PayOS.Models.V2.PaymentRequests;
+using PayOS.Models.Webhooks;
 
 namespace BE_DACK.Controllers
 {
@@ -21,6 +24,7 @@ namespace BE_DACK.Controllers
         private readonly IConfiguration _configuration;
         private readonly IVnpay _vnpay;
         private readonly IOptions<VNPaySettings> _cfg;
+        private readonly PayOSClient _payOS;
 
         private string GetFrontendUrl(string path = "")
         {
@@ -61,12 +65,13 @@ namespace BE_DACK.Controllers
             return SuccessfulPaymentStatuses.Contains(status.Trim());
         }
 
-        public PaymentController(DACKContext context, IConfiguration configuration, IVnpay vnpay, IOptions<VNPaySettings> cfg)
+        public PaymentController(DACKContext context, IConfiguration configuration, IVnpay vnpay, IOptions<VNPaySettings> cfg, PayOSClient payOS)
         {
             _context = context;
             _configuration = configuration;
             _vnpay = vnpay;
             _cfg = cfg;
+            _payOS = payOS;
         }
 
         [Authorize]
@@ -84,6 +89,7 @@ namespace BE_DACK.Controllers
 
                 var donHang = await _context.Orders
                     .Include(o => o.OrderDetails)
+                        .ThenInclude(od => od.Product)
                     .Include(o => o.Payments)
                     .FirstOrDefaultAsync(o => o.Id == dto.OrderId && o.CustomerId == userId);
 
@@ -122,8 +128,8 @@ namespace BE_DACK.Controllers
                     });
                 }
 
-                var phuongThucHopLe = new[] { "VNPAY", "COD" };
-                if (!phuongThucHopLe.Contains(dto.PhuongThucThanhToan))
+                var phuongThucHopLe = new[] { "VNPAY", "COD", "PAYOS" };
+                if (!phuongThucHopLe.Contains(dto.PhuongThucThanhToan.ToUpper()))
                 {
                     return BadRequest(new
                     {
@@ -133,6 +139,7 @@ namespace BE_DACK.Controllers
                 }
                 var phuongThuc = dto.PhuongThucThanhToan.ToUpper();
                 bool isVnpay = phuongThuc == "VNPAY";
+                bool isPayOS = phuongThuc == "PAYOS";
 
                 var thanhToan = new Payment
                 {
@@ -140,7 +147,7 @@ namespace BE_DACK.Controllers
                     NgayThanhToan = DateTime.UtcNow,
                     SoTienThanhToan = dto.SoTien,
                     PhuongThucThanhToan = phuongThuc,
-                    TrangThai = isVnpay ? "Chờ thanh toán" : "Thành công"
+                    TrangThai = (isVnpay || isPayOS) ? "Chờ thanh toán" : "Thành công"
                 };
 
                 _context.Payments.Add(thanhToan);
@@ -176,6 +183,50 @@ namespace BE_DACK.Controllers
                         url,
                         message = "Đang chuyển sang cổng thanh toán VNPAY."
                     });
+                }
+
+                if (isPayOS)
+                {
+                    try
+                    {
+                        var returnUrl = _configuration["PayOS:ReturnUrl"] ?? GetFrontendUrl("/api/Payment/ReturnPayOS");
+                        var cancelUrl = _configuration["PayOS:CancelUrl"] ?? GetFrontendUrl("/src/payment.html?orderId=" + dto.OrderId);
+
+                        // Lấy thông tin đơn hàng để đưa vào PayOS
+                        var items = donHang.OrderDetails.Select(d => new PaymentLinkItem {
+                            Name = d.Product?.TenSp ?? "Sản phẩm",
+                            Quantity = 1,
+                            Price = (long)d.Gia
+                        }).ToList();
+                        
+                        // PayOS yêu cầu orderCode là số long và duy nhất
+                        string timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+                        long orderCode = long.Parse(timestamp.Substring(timestamp.Length - 10) + thanhToan.Id.ToString().PadLeft(3, '0'));
+                        
+                        var paymentRequest = new CreatePaymentLinkRequest 
+                        {
+                            OrderCode = orderCode,
+                            Amount = (long)dto.SoTien,
+                            Description = $"Thanh toan don hang {donHang.Id}",
+                            Items = items,
+                            ReturnUrl = returnUrl,
+                            CancelUrl = cancelUrl
+                        };
+
+                        var createPaymentResult = await _payOS.PaymentRequests.CreateAsync(paymentRequest);
+                        
+                        return Ok(new
+                        {
+                            success = true,
+                            code = 202,
+                            url = createPaymentResult.CheckoutUrl,
+                            message = "Đang chuyển sang cổng thanh toán PayOS."
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        return BadRequest(new { success = false, message = "Lỗi khi tạo link thanh toán PayOS: " + ex.Message });
+                    }
                 }
 
                 tongDaThanhToan += dto.SoTien;
@@ -831,6 +882,175 @@ namespace BE_DACK.Controllers
             catch (Exception)
             {
                 return BadRequest(new { success = false, message = "Lỗi thanh toán." });
+            }
+        }
+
+        [AllowAnonymous]
+        [HttpGet("ReturnPayOS")]
+        public async Task<IActionResult> ReturnPayOS([FromQuery] string status, [FromQuery] long orderCode)
+        {
+            try
+            {
+                var homePageUrl = GetFrontendUrl(_configuration["FrontendUrl:HomePage"] ?? "/src/index.html");
+                var ordersPageUrl = GetFrontendUrl(_configuration["FrontendUrl:OrdersPage"] ?? "/src/orders.html");
+                var paymentPageUrl = GetFrontendUrl(_configuration["FrontendUrl:PaymentPage"] ?? "/src/payment.html");
+
+                if (status == "PAID")
+                {
+                    // Lấy ID thật từ orderCode (Timestamp 10 chữ số + ID)
+                    string codeStr = orderCode.ToString();
+                    int paymentId = int.Parse(codeStr.Substring(10));
+
+                    var thanhToan = await _context.Payments
+                        .Include(p => p.Order)
+                            .ThenInclude(o => o.OrderDetails)
+                        .FirstOrDefaultAsync(p => p.Id == paymentId);
+
+                    if (thanhToan != null && thanhToan.TrangThai != "Thành công")
+                    {
+                        thanhToan.TrangThai = "Thành công";
+                        
+                        var donHang = thanhToan.Order;
+                        var tongDaThanhToan = donHang.Payments
+                            .Where(p => IsSuccessfulPayment(p.TrangThai) || p.Id == thanhToan.Id)
+                            .Sum(p => p.SoTienThanhToan);
+
+                        if (tongDaThanhToan >= donHang.TongGiaTriDonHang)
+                        {
+                            donHang.TrangThai = "Đã thanh toán";
+                            foreach (var detail in donHang.OrderDetails)
+                            {
+                                detail.TrangThai = "Đã thanh toán";
+                            }
+                        }
+                        else
+                        {
+                            donHang.TrangThai = "Thanh toán một phần";
+                        }
+                        
+                        await _context.SaveChangesAsync();
+                    }
+
+                    string successHtml = $@"
+<!DOCTYPE html>
+<html lang='vi'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Thanh toán thành công - Decora</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #eff2f1; min-height: 100vh; display:flex; align-items:center; justify-content:center; padding:20px; }}
+        .result-container {{ background-color: #ffffff; padding: 50px 40px; border-radius: 16px; text-align:center; box-shadow: 0 6px 25px rgba(0,0,0,0.1); max-width: 500px; width: 100%; }}
+        .icon {{ width: 80px; height: 80px; background-color: #3b5d50; border-radius: 50%; display:flex; align-items:center; justify-content:center; margin: 0 auto 30px; color:#ffffff; font-size:48px; font-weight:700; }}
+        h1 {{ font-weight:700; color:#2f2f2f; margin-bottom:15px; font-size:32px; }}
+        p {{ color:#6a6a6a; margin-bottom:30px; }}
+        .btn {{ padding:12px 30px; border-radius:8px; font-weight:600; text-decoration:none; display:inline-block; }}
+        .btn-primary {{ background:#2f2f2f; color:#ffffff; margin-right:10px; }}
+        .btn-secondary {{ background:#f9bf29; color:#2f2f2f; }}
+    </style>
+</head>
+<body>
+    <div class='result-container'>
+        <div class='icon'>✓</div>
+        <h1>Thanh toán thành công!</h1>
+        <p>Cảm ơn bạn đã mua hàng. Đơn hàng của bạn đã được thanh toán thành công.</p>
+        <div>
+            <a href='{homePageUrl}' class='btn btn-primary'>Về trang chủ</a>
+            <a href='{ordersPageUrl}' class='btn btn-secondary'>Xem đơn hàng</a>
+        </div>
+    </div>
+</body>
+</html>";
+                    return Content(successHtml, "text/html");
+                }
+                else
+                {
+                    string failHtml = $@"
+<!DOCTYPE html>
+<html lang='vi'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Thanh toán thất bại - Decora</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #eff2f1; min-height: 100vh; display:flex; align-items:center; justify-content:center; padding:20px; }}
+        .result-container {{ background-color: #ffffff; padding: 50px 40px; border-radius: 16px; text-align:center; box-shadow: 0 6px 25px rgba(0,0,0,0.1); max-width: 500px; width: 100%; }}
+        .icon {{ width: 80px; height: 80px; background-color: #fce4e4; color: #dc2626; border-radius: 50%; display:flex; align-items:center; justify-content:center; margin: 0 auto 30px; font-size:48px; font-weight:700; }}
+        h1 {{ font-weight:700; color:#2f2f2f; margin-bottom:15px; font-size:28px; }}
+        p {{ color:#6a6a6a; margin-bottom:30px; }}
+        .btn {{ padding:12px 30px; border-radius:8px; font-weight:600; text-decoration:none; display:inline-block; }}
+        .btn-primary {{ background:#2f2f2f; color:#ffffff; }}
+    </style>
+</head>
+<body>
+    <div class='result-container'>
+        <div class='icon'>!</div>
+        <h1>Thanh toán không thành công</h1>
+        <p>Giao dịch của bạn đã bị hủy hoặc gặp lỗi. Vui lòng thử lại.</p>
+        <a href='{paymentPageUrl}' class='btn btn-primary'>Thử lại</a>
+    </div>
+</body>
+</html>";
+                    return Content(failHtml, "text/html");
+                }
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = "Lỗi xử lý kết quả PayOS: " + ex.Message });
+            }
+        }
+
+        [AllowAnonymous]
+        [HttpPost("PayOSWebhook")]
+        public async Task<IActionResult> PayOSWebhook([FromBody] Webhook webhookData)
+        {
+            try
+            {
+                // Xác thực webhook từ PayOS
+                var verifiedData = await _payOS.Webhooks.VerifyAsync(webhookData);
+                
+                if (verifiedData.Code == "00")
+                {
+                    string codeStr = verifiedData.OrderCode.ToString();
+                    int paymentId = int.Parse(codeStr.Substring(10));
+
+                    var thanhToan = await _context.Payments
+                        .Include(p => p.Order)
+                            .ThenInclude(o => o.OrderDetails)
+                        .FirstOrDefaultAsync(p => p.Id == paymentId);
+
+                    if (thanhToan != null && thanhToan.TrangThai != "Thành công")
+                    {
+                        thanhToan.TrangThai = "Thành công";
+                        
+                        var donHang = thanhToan.Order;
+                        var tongDaThanhToan = donHang.Payments
+                            .Where(p => IsSuccessfulPayment(p.TrangThai) || p.Id == thanhToan.Id)
+                            .Sum(p => p.SoTienThanhToan);
+
+                        if (tongDaThanhToan >= donHang.TongGiaTriDonHang)
+                        {
+                            donHang.TrangThai = "Đã thanh toán";
+                            foreach (var detail in donHang.OrderDetails)
+                            {
+                                detail.TrangThai = "Đã thanh toán";
+                            }
+                        }
+                        else
+                        {
+                            donHang.TrangThai = "Thanh toán một phần";
+                        }
+                        
+                        await _context.SaveChangesAsync();
+                    }
+                }
+                
+                return Ok(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("PayOS Webhook Error: " + ex.Message);
+                return BadRequest(new { success = false, message = ex.Message });
             }
         }
     }
