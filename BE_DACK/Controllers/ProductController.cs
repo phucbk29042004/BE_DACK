@@ -1,4 +1,4 @@
-﻿using BE_DACK.Models.Entities;
+using BE_DACK.Models.Entities;
 using BE_DACK.Models.Model;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -879,7 +879,9 @@ namespace BE_DACK.Controllers
             [FromQuery] decimal? giaMin,
             [FromQuery] decimal? giaMax,
             [FromQuery] string? sapXep = "gia-tang",
-            [FromQuery] bool? conHang = null)
+            [FromQuery] bool? conHang = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int limit = 12)
         {
             try
             {
@@ -926,7 +928,12 @@ namespace BE_DACK.Controllers
                     _ => query.OrderBy(p => p.Gia)
                 };
 
+                var totalItems = await query.CountAsync();
+                var totalPages = (int)Math.Ceiling(totalItems / (double)limit);
+
                 var danhSachSanPham = await query
+                    .Skip((page - 1) * limit)
+                    .Take(limit)
                     .Select(p => new
                     {
                         id = p.Id,
@@ -963,7 +970,10 @@ namespace BE_DACK.Controllers
                         sapXep = sapXep,
                         conHang = conHang
                     },
-                    total = danhSachSanPham.Count,
+                    total = totalItems,
+                    page = page,
+                    totalPages = totalPages,
+                    limit = limit,
                     data = danhSachSanPham
                 });
             }
@@ -979,6 +989,50 @@ namespace BE_DACK.Controllers
         }
 
         #endregion
+
+        [HttpGet("SanPhamNgauNhien/{count}")]
+        public async Task<IActionResult> SanPhamNgauNhien(int count)
+        {
+            try
+            {
+                var sanPhamNgauNhien = await _context.Products
+                    .OrderBy(x => Guid.NewGuid())
+                    .Take(count)
+                    .Select(p => new
+                    {
+                        id = p.Id,
+                        tenSp = p.TenSp,
+                        moTa = p.MoTa,
+                        gia = p.Gia,
+                        soLuongConLaiTrongKho = p.SoLuongConLaiTrongKho,
+                        conHang = p.SoLuongConLaiTrongKho > 0,
+                        categoryId = p.CategoryId,
+                        hinhAnh = p.ProductImages.Select(img => new
+                        {
+                            id = img.Id,
+                            productId = img.ProductId,
+                            url = img.HinhAnh
+                        }).ToList()
+                    })
+                    .ToListAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Lấy sản phẩm ngẫu nhiên thành công",
+                    data = sanPhamNgauNhien
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Lỗi khi lấy sản phẩm ngẫu nhiên",
+                    error = ex.Message
+                });
+            }
+        }
 
         #region Product Reviews
 
