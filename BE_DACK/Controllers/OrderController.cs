@@ -1,4 +1,4 @@
-﻿using BE_DACK.Helpers;
+using BE_DACK.Helpers;
 using BE_DACK.Models.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -307,41 +307,31 @@ namespace BE_DACK.Controllers
                 if (userId <= 0)
                     return Unauthorized(new { success = false, message = "Không thể xác định người dùng từ token." });
 
-                var orders = await _context.Orders
-                    .Include(o => o.OrderDetails)
-                        .ThenInclude(d => d.Product)
-                            .ThenInclude(p => p.ProductImages)
-                              .Include(o => o.IdShipperNavigation)
+                var danhSachDonHang = await _context.Orders
                     .Where(o => o.CustomerId == userId)
                     .OrderByDescending(o => o.NgayTaoDonHang)
-                    .ToListAsync();
-
-                var danhSachDonHang = orders.Select(o => new
-                {
-                    orderId = o.Id,
-                    ngayTao = o.NgayTaoDonHang,
-                    tongGiaTri = o.TongGiaTriDonHang,
-                    trangThai = o.TrangThai,
-                    soLuongSanPham = o.OrderDetails.Count,
-
-                    tenShipper = o.IdShipperNavigation?.TenShipper,
-
-                    sanPham = o.OrderDetails.Select(d => new
+                    .Select(o => new
                     {
-                        productId = d.ProductId,
-                        tenSp = d.Product?.TenSp ?? "",
-                        soLuong = d.SoLuongSp,
-                        gia = d.Gia,
-                        thanhTien = d.SoLuongSp * d.Gia,
+                        orderId = o.Id,
+                        ngayTao = o.NgayTaoDonHang,
+                        tongGiaTri = o.TongGiaTriDonHang,
+                        trangThai = o.TrangThai,
+                        soLuongSanPham = o.OrderDetails.Count,
 
-                        hinhAnh = (d.Product?.ProductImages ?? Enumerable.Empty<ProductImage>())
-                            .Select(img => new
-                            {
-                                id = img.Id,
-                                url = img.HinhAnh
-                            }).ToList()
-                    }).ToList()
-                }).ToList();
+                        tenShipper = o.IdShipperNavigation != null ? o.IdShipperNavigation.TenShipper : null,
+
+                        sanPham = o.OrderDetails.Select(d => new
+                        {
+                            productId = d.ProductId,
+                            tenSp = d.Product != null ? d.Product.TenSp : "",
+                            soLuong = d.SoLuongSp,
+                            gia = d.Gia,
+                            thanhTien = d.SoLuongSp * d.Gia,
+
+                            hinhAnh = d.Product != null ? d.Product.ProductImages.Select(img => new { id = img.Id, url = img.HinhAnh }) : null
+                        }).ToList()
+                    })
+                    .ToListAsync();
 
                 return Ok(new
                 {
@@ -439,47 +429,36 @@ namespace BE_DACK.Controllers
                     return StatusCode(403, new { success = false, message = "Bạn không có quyền truy cập chức năng này" });
                 }
 
-                var donHangs = await _context.Orders
-                    .Include(o => o.Customer)
-                    .Include(o => o.IdShipperNavigation)
-                    .Include(o => o.OrderDetails)
-                        .ThenInclude(d => d.Product)
-                            .ThenInclude(p => p.ProductImages)
+                var result = await _context.Orders
                     .OrderByDescending(o => o.NgayTaoDonHang)
+                    .Select(o => new
+                    {
+                        id = o.Id,
+                        customerId = o.CustomerId,
+                        khachHang = o.Customer != null ? new
+                        {
+                            id = o.Customer.Id,
+                            hoTen = o.Customer.HoTen,
+                            email = o.Customer.Email,
+                            sdt = o.Customer.Sdt,
+                            diaChi = o.Customer.DiaChi
+                        } : null,
+                        ngayTao = o.NgayTaoDonHang,
+                        tongGiaTri = o.TongGiaTriDonHang,
+                        trangThai = o.TrangThai,
+                        soLuongSanPham = o.OrderDetails.Count,
+                        tenShipper = o.IdShipperNavigation != null ? o.IdShipperNavigation.TenShipper : null,
+                        chiTietSanPham = o.OrderDetails.Select(d => new
+                        {
+                            productId = d.ProductId,
+                            tenSp = d.Product != null ? d.Product.TenSp : "N/A",
+                            soLuong = d.SoLuongSp,
+                            gia = d.Gia,
+                            thanhTien = d.SoLuongSp * d.Gia,
+                            hinhAnh = d.Product != null ? d.Product.ProductImages.Select(img => new { id = img.Id, url = img.HinhAnh }) : null
+                        }).ToList()
+                    })
                     .ToListAsync();
-
-                var result = donHangs.Select(o => new
-                {
-                    id = o.Id,
-                    customerId = o.CustomerId,
-                    khachHang = o.Customer != null ? new
-                    {
-                        id = o.Customer.Id,
-                        hoTen = o.Customer.HoTen,
-                        email = o.Customer.Email,
-                        sdt = o.Customer.Sdt,
-                        diaChi = o.Customer.DiaChi
-                    } : null,
-                    ngayTao = o.NgayTaoDonHang,
-                    tongGiaTri = o.TongGiaTriDonHang,
-                    trangThai = o.TrangThai,
-                    soLuongSanPham = o.OrderDetails.Count,
-                    tenShipper = o.IdShipperNavigation != null ? o.IdShipperNavigation.TenShipper : null,
-                    chiTietSanPham = o.OrderDetails.Select(d => new
-                    {
-                        productId = d.ProductId,
-                        tenSp = d.Product?.TenSp ?? "N/A",
-                        soLuong = d.SoLuongSp,
-                        gia = d.Gia,
-                        thanhTien = d.SoLuongSp * d.Gia,
-                        hinhAnh = (d.Product?.ProductImages ?? Enumerable.Empty<ProductImage>())
-                            .Select(img => new
-                            {
-                                id = img.Id,
-                                url = img.HinhAnh
-                            }).ToList()
-                    }).ToList()
-                }).ToList();
 
                 return Ok(new
                 {

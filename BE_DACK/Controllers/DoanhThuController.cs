@@ -127,39 +127,38 @@ namespace BE_DACK.Controllers
                 return BadRequest(new { success = false, message = "Định dạng ngày không hợp lệ. Ví dụ: 20-11-2025" });
             }
 
-            var payments = await BasePaymentQuery()
+            var chiTiet = await BasePaymentQuery()
                 .Where(p => p.NgayThanhToan.Date == ngayFilter.Date)
-                .ToListAsync();
-
-            var chiTiet = payments.Select(p => new
-            {
-                paymentId = p.Id,
-                orderId = p.OrderId,
-                soTien = p.SoTienThanhToan,
-                phuongThuc = p.PhuongThucThanhToan,
-                ngayThanhToan = p.NgayThanhToan,
-                order = p.Order != null ? new
+                .Select(p => new
                 {
-                    orderId = p.Order.Id,
-                    ngayTao = p.Order.NgayTaoDonHang,
-                    tongGiaTri = p.Order.TongGiaTriDonHang,
-                    trangThai = p.Order.TrangThai,
-                    khachHang = p.Order.Customer != null ? new
+                    paymentId = p.Id,
+                    orderId = p.OrderId,
+                    soTien = p.SoTienThanhToan,
+                    phuongThuc = p.PhuongThucThanhToan,
+                    ngayThanhToan = p.NgayThanhToan,
+                    order = p.Order != null ? new
                     {
-                        id = p.Order.Customer.Id,
-                        hoTen = p.Order.Customer.HoTen,
-                        email = p.Order.Customer.Email,
-                        sdt = p.Order.Customer.Sdt
+                        orderId = p.Order.Id,
+                        ngayTao = p.Order.NgayTaoDonHang,
+                        tongGiaTri = p.Order.TongGiaTriDonHang,
+                        trangThai = p.Order.TrangThai,
+                        khachHang = p.Order.Customer != null ? new
+                        {
+                            id = p.Order.Customer.Id,
+                            hoTen = p.Order.Customer.HoTen,
+                            email = p.Order.Customer.Email,
+                            sdt = p.Order.Customer.Sdt
+                        } : null
                     } : null
-                } : null
-            }).ToList();
+                })
+                .ToListAsync();
 
             return Ok(new
             {
                 success = true,
                 ngay = ngayFilter.ToString("dd/MM/yyyy"),
-                tongDoanhThu = payments.Sum(p => p.SoTienThanhToan),
-                soDon = payments.Count,
+                tongDoanhThu = chiTiet.Sum(p => p.soTien),
+                soDon = chiTiet.Count,
                 chiTiet
             });
         }
@@ -173,11 +172,19 @@ namespace BE_DACK.Controllers
             if (nam < 2000 || nam > 2100)
                 return BadRequest(new { success = false, message = "Năm không hợp lệ (2000-2100)." });
 
-            var payments = await BasePaymentQuery()
+            var paymentsData = await BasePaymentQuery()
                 .Where(p => p.NgayThanhToan.Month == thang && p.NgayThanhToan.Year == nam)
+                .Select(p => new
+                {
+                    p.Id,
+                    p.OrderId,
+                    p.SoTienThanhToan,
+                    p.PhuongThucThanhToan,
+                    p.NgayThanhToan
+                })
                 .ToListAsync();
 
-            var chiTietTheoNgay = payments
+            var chiTietTheoNgay = paymentsData
                 .GroupBy(p => p.NgayThanhToan.Date)
                 .Select(g => new
                 {
@@ -200,8 +207,8 @@ namespace BE_DACK.Controllers
                 success = true,
                 thang = thang.ToString("00"),
                 nam,
-                tongDoanhThu = payments.Sum(p => p.SoTienThanhToan),
-                soDon = payments.Count,
+                tongDoanhThu = paymentsData.Sum(p => p.SoTienThanhToan),
+                soDon = paymentsData.Count,
                 chiTietTheoNgay
             });
         }
@@ -212,11 +219,16 @@ namespace BE_DACK.Controllers
             if (nam < 2000 || nam > 2100)
                 return BadRequest(new { success = false, message = "Năm không hợp lệ (2000-2100)." });
 
-            var payments = await BasePaymentQuery()
+            var paymentsData = await BasePaymentQuery()
                 .Where(p => p.NgayThanhToan.Year == nam)
+                .Select(p => new
+                {
+                    p.NgayThanhToan,
+                    p.SoTienThanhToan
+                })
                 .ToListAsync();
 
-            var chiTietTheoThang = payments
+            var chiTietTheoThang = paymentsData
                 .GroupBy(p => p.NgayThanhToan.Month)
                 .Select(g => new
                 {
@@ -232,8 +244,8 @@ namespace BE_DACK.Controllers
             {
                 success = true,
                 nam,
-                tongDoanhThu = payments.Sum(p => p.SoTienThanhToan),
-                soDon = payments.Count,
+                tongDoanhThu = paymentsData.Sum(p => p.SoTienThanhToan),
+                soDon = paymentsData.Count,
                 chiTietTheoThang
             });
         }
@@ -254,11 +266,16 @@ namespace BE_DACK.Controllers
             if (tuNgayFilter > denNgayFilter)
                 return BadRequest(new { success = false, message = "Từ ngày phải nhỏ hơn hoặc bằng đến ngày." });
 
-            var payments = await BasePaymentQuery()
+            var paymentsData = await BasePaymentQuery()
                 .Where(p => p.NgayThanhToan.Date >= tuNgayFilter.Date && p.NgayThanhToan.Date <= denNgayFilter.Date)
+                .Select(p => new
+                {
+                    p.NgayThanhToan,
+                    p.SoTienThanhToan
+                })
                 .ToListAsync();
 
-            var chiTietTheoNgay = payments
+            var chiTietTheoNgay = paymentsData
                 .GroupBy(p => p.NgayThanhToan.Date)
                 .Select(g => new
                 {
@@ -277,9 +294,9 @@ namespace BE_DACK.Controllers
                 tuNgay = tuNgayFilter.ToString("dd/MM/yyyy"),
                 denNgay = denNgayFilter.ToString("dd/MM/yyyy"),
                 soNgay,
-                tongDoanhThu = payments.Sum(p => p.SoTienThanhToan),
-                soDon = payments.Count,
-                doanhThuTrungBinh = payments.Count > 0 ? payments.Sum(p => p.SoTienThanhToan) / soNgay : 0,
+                tongDoanhThu = paymentsData.Sum(p => p.SoTienThanhToan),
+                soDon = paymentsData.Count,
+                doanhThuTrungBinh = paymentsData.Count > 0 ? paymentsData.Sum(p => p.SoTienThanhToan) / soNgay : 0,
                 chiTietTheoNgay
             });
         }
@@ -287,7 +304,15 @@ namespace BE_DACK.Controllers
         [HttpGet("ThongKeChung")]
         public async Task<IActionResult> GetOverview()
         {
-            var tatCaThanhToan = await BasePaymentQuery().ToListAsync();
+            var tatCaThanhToan = await BasePaymentQuery()
+                .Select(p => new
+                {
+                    p.NgayThanhToan,
+                    p.SoTienThanhToan,
+                    p.PhuongThucThanhToan,
+                    Customer = p.Order != null ? p.Order.Customer : null
+                })
+                .ToListAsync();
 
             var homNay = DateTime.Today;
             var thangHienTai = DateTime.Now.Month;
@@ -298,13 +323,13 @@ namespace BE_DACK.Controllers
             var doanhThuNamNay = tatCaThanhToan.Where(p => p.NgayThanhToan.Year == namHienTai).ToList();
 
             var topKhachHang = tatCaThanhToan
-                .Where(p => p.Order?.Customer != null)
+                .Where(p => p.Customer != null)
                 .GroupBy(p => new
                 {
-                    p.Order!.Customer!.Id,
-                    p.Order.Customer.HoTen,
-                    p.Order.Customer.Email,
-                    p.Order.Customer.Sdt
+                    p.Customer!.Id,
+                    p.Customer.HoTen,
+                    p.Customer.Email,
+                    p.Customer.Sdt
                 })
                 .Select(g => new
                 {
@@ -400,32 +425,34 @@ namespace BE_DACK.Controllers
         [HttpGet("ThongKeDonHang")]
         public async Task<IActionResult> GetOrderStatistic()
         {
+            var statuses = SuccessfulPaymentStatuses.ToList();
             var orders = await _context.Orders
-                .Include(o => o.Payments)
+                .Select(o => new
+                {
+                    TrangThai = o.TrangThai ?? "Không xác định",
+                    TongGiaTriDonHang = o.TongGiaTriDonHang,
+                    DaThanhToan = o.Payments
+                        .Where(p => p.TrangThai != null && statuses.Contains(p.TrangThai.Trim().ToLower()))
+                        .Sum(p => p.SoTienThanhToan)
+                })
                 .ToListAsync();
 
             var thongKe = orders
-                .GroupBy(o => o.TrangThai ?? "Không xác định")
+                .GroupBy(o => o.TrangThai)
                 .Select(g => new
                 {
                     trangThai = g.Key,
                     soLuongDon = g.Count(),
                     tongGiaTri = g.Sum(o => o.TongGiaTriDonHang),
-                    daDuocThanhToan = g.Sum(o => o.Payments
-                        .Where(p => IsSuccessfulPayment(p.TrangThai))
-                        .Sum(p => p.SoTienThanhToan)),
-                    conLai = g.Sum(o => o.TongGiaTriDonHang) - g.Sum(o => o.Payments
-                        .Where(p => IsSuccessfulPayment(p.TrangThai))
-                        .Sum(p => p.SoTienThanhToan))
+                    daDuocThanhToan = g.Sum(o => o.DaThanhToan),
+                    conLai = g.Sum(o => o.TongGiaTriDonHang) - g.Sum(o => o.DaThanhToan)
                 })
                 .OrderByDescending(x => x.soLuongDon)
                 .ToList();
 
             var tongDon = orders.Count;
             var tongGiaTriTatCaDon = orders.Sum(o => o.TongGiaTriDonHang);
-            var tongDaThanhToan = orders.Sum(o => o.Payments
-                .Where(p => IsSuccessfulPayment(p.TrangThai))
-                .Sum(p => p.SoTienThanhToan));
+            var tongDaThanhToan = orders.Sum(o => o.DaThanhToan);
 
             return Ok(new
             {
