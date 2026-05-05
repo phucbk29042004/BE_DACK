@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using BE_DACK.Models.Entities;
@@ -14,12 +14,12 @@ namespace BE_DACK.Controllers
         private readonly DACKContext _context;
         private static readonly string[] AcceptedDateFormats = { "dd-MM-yyyy", "dd/MM/yyyy", "yyyy-MM-dd" };
         private const string PAYMENT_SUCCESS = "Thành công";
-        private static readonly HashSet<string> SuccessfulPaymentStatuses = new(StringComparer.OrdinalIgnoreCase)
+        private static readonly string[] SuccessfulPaymentStatuses = new string[]
         {
-            PAYMENT_SUCCESS,
-            "Thanh toán COD",
-            "Thanh toán thành công",
-            "COD"
+            PAYMENT_SUCCESS.ToLower(),
+            "thanh toán cod",
+            "thanh toán thành công",
+            "cod"
         };
 
         public DoanhThuController(DACKContext context)
@@ -30,15 +30,16 @@ namespace BE_DACK.Controllers
         private static bool IsSuccessfulPayment(string? status)
         {
             if (string.IsNullOrWhiteSpace(status)) return false;
-            return SuccessfulPaymentStatuses.Contains(status.Trim());
+            return SuccessfulPaymentStatuses.Contains(status.Trim().ToLower());
         }
 
         private IQueryable<Payment> BasePaymentQuery()
         {
+            var statuses = SuccessfulPaymentStatuses.ToList();
             return _context.Payments
                 .Include(p => p.Order)
                     .ThenInclude(o => o.Customer)
-                .Where(p => SuccessfulPaymentStatuses.Contains(p.TrangThai.Trim()));
+                .Where(p => p.TrangThai != null && statuses.Contains(p.TrangThai.Trim().ToLower()));
         }
 
         #region Debug Endpoints

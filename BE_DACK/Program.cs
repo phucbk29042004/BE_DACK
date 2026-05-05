@@ -1,4 +1,4 @@
-﻿using BE_DACK.Models.Entities;
+using BE_DACK.Models.Entities;
 using BE_DACK.Models.Model;
 using CloudinaryDotNet;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -100,6 +100,14 @@ var app = builder.Build();
 
 // === 8. MIDDLEWARE PIPELINE ===
 
+app.UseExceptionHandler(c => c.Run(async context =>
+{
+    context.Response.StatusCode = 500;
+    context.Response.ContentType = "application/json";
+    var ex = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+    await context.Response.WriteAsJsonAsync(new { success = false, message = "Internal Server Error", details = ex?.Message });
+}));
+
 // Luôn bật Swagger ở cả Production để bạn dễ test trên Render
 app.UseSwagger();
 app.UseSwaggerUI(c =>
@@ -108,9 +116,8 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = string.Empty; // Truy cập link chính sẽ ra luôn Swagger
 });
 
-app.UseCors("AllowAll");
-
 app.UseRouting();
+app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
