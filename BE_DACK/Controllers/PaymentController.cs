@@ -51,6 +51,34 @@ namespace BE_DACK.Controllers
             return fullUrl;
         }
 
+        private string GetBackendUrl(string path = "")
+        {
+            var baseUrl = _configuration["BackendUrl:BaseUrl"];
+
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                baseUrl = $"{Request.Scheme}://{Request.Host}";
+            }
+
+            baseUrl = baseUrl.TrimEnd('/');
+
+            if (!baseUrl.StartsWith("http://") && !baseUrl.StartsWith("https://"))
+            {
+                baseUrl = "http://" + baseUrl;
+            }
+
+            if (string.IsNullOrWhiteSpace(path))
+                return baseUrl;
+
+            path = path.Trim();
+            if (!path.StartsWith("/"))
+            {
+                path = "/" + path;
+            }
+
+            return $"{baseUrl}{path}";
+        }
+
         private static readonly HashSet<string> SuccessfulPaymentStatuses = new(StringComparer.OrdinalIgnoreCase)
         {
             "Thành công",
@@ -189,7 +217,7 @@ namespace BE_DACK.Controllers
                 {
                     try
                     {
-                        var returnUrl = _configuration["PayOS:ReturnUrl"] ?? (GetFrontendUrl().TrimEnd('/') + "/api/Payment/ReturnPayOS");
+                        var returnUrl = _configuration["PayOS:ReturnUrl"] ?? GetBackendUrl("/api/Payment/ReturnPayOS");
                         var cancelUrl = _configuration["PayOS:CancelUrl"] ?? (GetFrontendUrl().TrimEnd('/') + "/src/index.html");
 
                         // Chỉ hiện thông tin chung, không hiện chi tiết từng sản phẩm theo yêu cầu
@@ -908,21 +936,22 @@ namespace BE_DACK.Controllers
                     string codeStr = orderCode.ToString();
                     int paymentId = int.Parse(codeStr.Substring(10));
 
-                    var thanhToan = await _context.Payments
-                        .Include(p => p.Order)
-                            .ThenInclude(o => o.OrderDetails)
-                        .FirstOrDefaultAsync(p => p.Id == paymentId);
+                    var thanhToan = await _context.Payments.FirstOrDefaultAsync(p => p.Id == paymentId);
 
                     if (thanhToan != null && thanhToan.TrangThai != "Thành công")
                     {
                         thanhToan.TrangThai = "Thành công";
                         
-                        var donHang = thanhToan.Order;
-                        var tongDaThanhToan = donHang.Payments
-                            .Where(p => IsSuccessfulPayment(p.TrangThai) || p.Id == thanhToan.Id)
-                            .Sum(p => p.SoTienThanhToan);
+                        var donHang = await _context.Orders
+                            .Include(o => o.OrderDetails)
+                            .Include(o => o.Payments)
+                            .FirstOrDefaultAsync(o => o.Id == thanhToan.OrderId);
 
-                        if (tongDaThanhToan >= donHang.TongGiaTriDonHang)
+                        var tongDaThanhToan = donHang?.Payments
+                            .Where(p => IsSuccessfulPayment(p.TrangThai) || p.Id == thanhToan.Id)
+                            .Sum(p => p.SoTienThanhToan) ?? 0;
+
+                        if (donHang != null && tongDaThanhToan >= donHang.TongGiaTriDonHang)
                         {
                             donHang.TrangThai = "Đã thanh toán";
                             foreach (var detail in donHang.OrderDetails)
@@ -930,7 +959,7 @@ namespace BE_DACK.Controllers
                                 detail.TrangThai = "Đã thanh toán";
                             }
                         }
-                        else
+                        else if (donHang != null)
                         {
                             donHang.TrangThai = "Thanh toán một phần";
                         }
